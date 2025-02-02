@@ -1,13 +1,14 @@
-
-export default {
-  content: [
+module.exports = {
+  darkMode: 'class',
+	content: [
     "./src/**/*.{js,jsx,ts,tsx}",
     "./public/index.html",
     "./**/*.html",
   ],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-}
-
+	theme: {
+		extend: {
+			colors: {},
+		},
+	},
+	plugins: [],
+};
