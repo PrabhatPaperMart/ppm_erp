@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Paptech Corp PVT. LTD. All rights reserved.
 //
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { unstable_HistoryRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import history from './history';
 import './App.css';
@@ -22,13 +22,13 @@ import themeConfig from './theme';
 
 const App = () => {
 
-  useEffect(() => {
-    getUserProfile()
-      .then((data) => {
-        console.log(data);
-      })
-      .catch((err) => console.error(err));
-  }, []);
+  // useEffect(() => {
+  //   getUserProfile()
+  //     .then((data) => {
+  //       console.log(data);
+  //     })
+  //     .catch((err) => console.error(err));
+  // }, []);
 
   return (
     <ConfigProvider theme={ themeConfig }>
