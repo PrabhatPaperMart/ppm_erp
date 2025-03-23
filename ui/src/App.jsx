@@ -64,12 +64,12 @@ const App = () => {
             <Route
               path="/home"
               element={
-                <ProtectedRoute
+                <div
                   history={ history }
                 >
                   <AppBar />
                   <HomePage />
-                </ProtectedRoute>
+                </div>
               }
             />
             <Route
