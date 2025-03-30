@@ -1,10 +1,10 @@
 const express = require('express');
-const { handleUserEmailSignup, handleEmailOtpVerification, handleResendOtp, handleUserSignup, handleUserLogin, handlePasswordReset } = require('../controllers/authController');
+const { handleUserEmailVerification, handleEmailOtpVerification, handleResendOtp, handleUserSignup, handleUserLogin, handlePasswordReset } = require('../controllers/authController');
 const router = express.Router();
 
 // All `register` endpoints
 router.route('/register/verify/email')
-  .post(handleUserEmailSignup);
+  .post(handleUserEmailVerification);
 router.route('/register/verify/emailOtp')
   .post(handleEmailOtpVerification);
 router.route('/register/resendOtp')

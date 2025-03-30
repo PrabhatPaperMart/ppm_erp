@@ -1,26 +1,36 @@
 const prisma = require('../models');
-// require('dotenv').config();
 const config = require('../config/env');
 const nodemailer = require("nodemailer");
 const bcrypt = require('bcrypt');
 const { generateJwtToken } = require('./jwt');
 
-// Email Validation Utility
-const isValidEmail = async (email) => {
+
+/**
+ * Generates a random OTP (One-Time Password).
+ * @returns {string} The generated OTP.
+ */
+const isValidEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   return emailRegex.test(email)
 }
 
-// OTP Generation Utility
-const generateOTP = async (req, res) => {
+/**
+ * Generates a random six-digit OTP (One-Time Password).
+ * @returns {string} The generated OTP.
+ */
+const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString()
 }
 
-// Email Sending Utility
-const sendOTPEmail = async (email, otp) => {
-  // Configure your email transporter (replace with your SMTP details)
-  // console.log("email user is", config.EMAIL_USER);
-  // console.log("email pass is", config.EMAIL_PASS);
+/**
+ * Sends an OTP (One-Time Password) email to the specified email address.
+ * @param {string} email - The recipient's email address.
+ * @param {string} otp - The one-time password to be sent.
+ * @returns {Promise<void>} - A promise that resolves when the email is sent successfully.
+ */
+const sendOTPEmail = async (firstName, lastName, email, otp) => {
+  // Configure your email transporter (replace `user` and `pass` with your
+  // own SMTP details)
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -30,43 +40,56 @@ const sendOTPEmail = async (email, otp) => {
   })
 
   await transporter.sendMail({
-    from: process.env.EMAIL_USER,
+    from: config.EMAIL_USER,
     to: email,
     subject: 'OTP for PPM ERP Registration',
-    html: `<p>Your OTP is: <b>${otp}</b>. This OTP will expire in 10 minutes.</p>`
+    html: `<p>Hi ${firstName} ${lastName},</p><br><p>Your OTP is: <b>${otp}</b>.
+           This OTP will expire in 10 minutes.</p>`
   })
 }
 
-// TODO: Verify Email address
-// If the email is not valid, return error
-// If the email is already in use, return error
-// If email is valid and not in use:
-// 1. Generate OTP
-// 2. Store OTP in database
-// 3. Send OTP via email
-// 4. Return success message
-const handleUserEmailSignup = async (req, res) => {
+/**
+ * Handles user email signup.
+ * 1. Verifies the email address
+ *   a. IF email is already present in User DB, User is already registered
+ *   b. If email is not in User DB, but present in verifyOtp DB, email is already verified.
+ *   d. If the email is not present in User DB and verifyOtp DB, proceed to next step
+ *     i. If the email is not valid, return error
+ * 2. Generates OTP.
+ * 3. Stores OTP in the database.
+ * 4. Sends OTP via email.
+ * 5. Returns success message.
+ * @param {Object} req - The request object.
+ * @param {Object} res - The response object.
+ * @returns {Promise<void>} - A promise that resolves when the signup process is completed.
+ */
+const handleUserEmailVerification = async (req, res) => {
   try {
-    // console.log("request body is", req.body);
-    const { email } = req.body
+    const { email } = req.body;
 
-    // Validate email
-    const isValid = await isValidEmail(email)
-    // console.log("is it valid email ?: ", isValid);
-    if (!isValid) {
-      return res.status(400).json({ error: "Invalid email format" })
-    }
-
-    // Check if email already exists
-    const existingUser = await prisma.user.findUnique({ where: { email } })
+    // Check if email already exists in User DB
+    const existingUser = await prisma.User.findUnique({ where: { email } });
 
     if (existingUser) {
-      return res.status(400).json({ error: "Email already in use" })
+      return res.status(400).json({ error: "Email already in use. Please proceed to the login page." });
+    }
+
+    // Check if email already exists in verifyOtp DB
+    const existingOtp = await prisma.verifyOtp.findUnique({ where: { email } });
+
+    if (existingOtp && existingOtp.isVerified) {
+      return res.status(400).json({ error: "Email is already verified. Directly enter the password to register" });
+    }
+
+    // Validate email
+    const isValid = isValidEmail(email);
+
+    if (!isValid) {
+      return res.status(400).json({ error: "Invalid email format" });
     }
 
     // Generate OTP
-    const otp = await generateOTP()
-    // console.log("otp is", otp);
+    const otp = generateOTP();
 
     // Store OTP in database
     await prisma.verifyOtp.create({
@@ -74,29 +97,35 @@ const handleUserEmailSignup = async (req, res) => {
         email,
         otp,
         isVerified: false,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes from now
-      }
-    })
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+      },
+    });
 
     // Send OTP via email
-    await sendOTPEmail(email, otp)
+    await sendOTPEmail(email, otp);
 
-    // Return success response code 201 - Rsource Created
-    res.status(200).json({ message: `OTP has been sent to ${email}` })
+    // Return success response code 201 - Resource Created
+    res.status(200).json({ message: `OTP has been sent to ${email}` });
   } catch (error) {
     // Error code 500 - Server side error
     res.status(500).json({
       error: "Registration process failed",
-      details: error.message
-    })
+      details: error.message,
+    });
   }
 };
 
-// TODO: Verify OTP with Email ID
-// If OTP is invalid or expired, return error
-// If OTP is not found, return error
-// If OTP is valid and not expired:
-// 1. return Success message
+/**
+ * Handles the verification of email OTP.
+ * 1. Finds the OTP record for the given email.
+ * If OTP is invalid or expired, return error
+ * If OTP is not found, return error
+ * If OTP is valid and not expired:
+ *   1. return Success message
+ * @param {Object} req - The request object.
+ * @param {Object} res - The response object.
+ * @returns {Promise<void>} - A Promise that resolves when the OTP verification is complete.
+ */
 const handleEmailOtpVerification = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -109,14 +138,14 @@ const handleEmailOtpVerification = async (req, res) => {
 
     // Check if OTP record exists
     if (!otpRecord) {
-      return res.status(400).json({
-        error: `No OTP is registered for this email: ${email}`,
+      return res.status(404).json({
+        error: `No OTP record found with the registered email: ${email}`,
       });
     }
 
     // Check if OTP has expired
     if (otpRecord.expiresAt < new Date()) {
-      return res.status(400).json({
+      return res.status(401).json({
         error: "OTP has been expired. Please request for a new OTP.",
       });
     }
@@ -124,7 +153,7 @@ const handleEmailOtpVerification = async (req, res) => {
     // Check if OTP matches
     if (otpRecord.otp !== otp) {
       return res.status(400).json({
-        error: "Invalid OTP provided",
+        error: "Invalid OTP provided. Bad request, please try again.",
       });
     }
 
@@ -148,21 +177,32 @@ const handleEmailOtpVerification = async (req, res) => {
   }
 }
 
-// TODO: Verify the Resend OTP with Email ID
-// Here, we don't need to verify the email, since that is already verified.
-// We just need to generate a new OTP and send it via email.
+/**
+ * Handle the resend OTP request using Email ID.
+ *
+ * @param {Object} req - The request object - firstName, lastName, email.
+ * @param {Object} res - The response object.
+ * @returns {Promise<void>} - A Promise that resolves when the function is done handling the request.
+ */
 const handleResendOtp = async (req, res) => {
   try {
-    const { email } = req.body
-    // Generate OTP
-    const newOtp = await generateOTP()
-    // console.log("otp is", newOtp);
+    const { firstName, lastName, email } = req.body;
+
+    // Check if the email exists
+    const otpRecord = await prisma.verifyOtp.findUnique({
+      where: { email }
+    });
+
+    if (!otpRecord) {
+      return res.status(404).json({ error: `No OTP is registered for this email: ${email}` });
+    }
+
+    // Generate new OTP
+    const newOtp = generateOTP();
 
     // Update existing OTP record - single atomic update operation
     await prisma.verifyOtp.update({
-      where: {
-        email // Assuming email is unique field
-      },
+      where: { email },
       data: {
         otp: newOtp,
         isVerified: false,
@@ -170,79 +210,105 @@ const handleResendOtp = async (req, res) => {
       }
     });
 
-
     // Send OTP via email
-    await sendOTPEmail(email, newOtp)
+    const emailResult = await sendOTPEmail(firstName, lastName, email, newOtp);
 
-    res.status(200).json({ message: `New OTP has been sent to ${email}` })
+    if (!emailResult.success) {
+      return res.status(500).json({
+        error: "Failed to send OTP email",
+        details: emailResult.error
+      });
+    }
+
+    res.status(200).json({ message: `New OTP has been sent to ${email}` });
   } catch (error) {
     // Error code 500 - Server side error
     res.status(500).json({
       error: "Failed to resend OTP",
       details: error.message
-    })
+    });
   }
 };
 
-// TODO: Implement the User Signup function
-// Password and Confirm Password validation done by the Frontend
-// Add new User to the database
-// Hash the password before storing
-// Generate JWT token and return it along with the response
+/**
+ * Handles user signup.
+ * 1. Password and Confirm Password validation done by the Frontend
+ * 2. Add new User to the database
+ * 3. Hash the password before storing
+ * 4. Generate JWT token and return it along with the response
+ * @param {Object} req - The request object - firstName, lastName, email, password
+ * @param {Object} res - The response object.
+ * @returns {Promise<void>} - A Promise that resolves when the signup process is complete.
+ */
 const handleUserSignup = async (req, res) => {
   try {
     const { firstName, lastName, email, password } = req.body;
 
+    // Check if the email is verified
+    const isEmailVerified = await prisma.verifyOtp.findUnique({
+      where: { email },
+    });
+
+    if (!isEmailVerified || !isEmailVerified.isVerified) {
+      return res.status(400).json({
+        error: "Email not verified.",
+        message: "Please verify your email before registering.",
+      });
+    }
+
     // Hash the password before storing
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUserDetails = await prisma.user.create({
-      data:
-      {
+
+    const newUserDetails = await prisma.User.create({
+      data: {
         firstName,
         lastName,
         email,
-        password: hashedPassword
-      }
+        password: hashedPassword,
+      },
     });
 
     // Generate JWT token without the password field
     const { password: _, ...userWithoutPassword } = newUserDetails;
     const token = generateJwtToken(userWithoutPassword);
-    console.log(`Token generated: ${token}`);
 
     // Set the token in a cookie
     res.cookie("uid", token, {
       httpOnly: true,
       secure: true,
-      expires: new Date(Date.now() + 60 * 10 * 1000) // 10 mins
+      expires: new Date(Date.now() + 60 * 10 * 1000), // 10 mins
     });
 
-    // Return success response code 201 - Rsource Created
+    // Return success response code 201 - Resource Created
     res.status(201).json({
       user: userWithoutPassword,
       token: token,
     });
-
   } catch (error) {
     // Error code 500 - Server side error
     res.status(500).json({
       error: "User registration failed.",
-      message: "Either the email is already taken or the request is invalid."
+      message: "Either the email is already taken or the request is invalid.",
     });
   }
 };
 
-// TODO: Implement the User Login function
-// For login we only require email and password
-// If email is not found, return error
-// If password is incorrect, return error
-// If email and password are correct: Return success message
+/**
+ * Handles user login.
+ * If email is not found, return error.
+ * For login we only require email and password.
+ * If password is incorrect, return error.
+ * If email and password are correct: Return success message
+ * @param {Object} req - The request object - email, password
+ * @param {Object} res - The response object.
+ * @returns {Object} The response object.
+ */
 const handleUserLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
     // Check if user exists in Users table
-    const user = await prisma.user.findUnique({
+    const user = await prisma.User.findUnique({
       where: { email }
     });
 
@@ -267,11 +333,8 @@ const handleUserLogin = async (req, res) => {
     // Remove password from the handleUserLogin response
     // Generate JWT token without the password field
     const { password: _, ...userWithoutPassword } = user;
-    console.log("user is", user);
-    console.log("user without password is", userWithoutPassword);
 
     const token = generateJwtToken(userWithoutPassword);
-    console.log(`Token generated: ${token}`);
 
     // Set the token in a cookie
     res.cookie("uid", token, {
@@ -288,7 +351,6 @@ const handleUserLogin = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Login error:", error);
     // Error code 500 - Server side error
     return res.status(500).json({
       error: "Login failed",
@@ -297,10 +359,15 @@ const handleUserLogin = async (req, res) => {
   }
 };
 
-// TODO: Implement the Password Reset function
-// For password reset:
-// 1. Check if the email exists - if not, return error "Email does not exist"
-// 2. If email exists, take the new password and update the password in the database
+/**
+ * Handles the password reset for a user.
+ * For password reset:
+ * 1. Check if the email exists - if not, return error "Email does not exist"
+ * 2. If email exists, take the new password and update the password in the database
+ * @param {Object} req - The request object - email, newPassword
+ * @param {Object} res - The response object.
+ * @returns {Promise<void>} - A promise that resolves when the password reset is complete.
+ */
 const handlePasswordReset = async (req, res) => {
   try {
     const { email, newPassword } = req.body;
@@ -347,7 +414,7 @@ module.exports = {
   generateOTP,
   isValidEmail,
   sendOTPEmail,
-  handleUserEmailSignup,
+  handleUserEmailVerification,
   handleEmailOtpVerification,
   handleResendOtp,
   handleUserSignup,
